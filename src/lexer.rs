@@ -1,11 +1,11 @@
-#[derive(Debug)]
-pub enum Token<'a> {
-    Dec(&'a [char]),
-    Hex(&'a [char]),
-    Oct(&'a [char]),
+#[derive(Debug, PartialEq)]
+pub enum Token {
+    Dec(String),
+    Hex(String),
+    Oct(String),
 
-    StrLiteral(&'a [char]),
-    CharLiteral(&'a [char]),
+    StrLiteral(String),
+    CharLiteral(String),
 
     Plus,
     Minus,
@@ -22,7 +22,7 @@ pub enum Token<'a> {
     SlashEqual,
     DoubleEqual,
 
-    Reserved(&'a [char]),
+    Reserved(String),
 
     RoundOpen,
     CurlyOpen,
@@ -37,8 +37,8 @@ pub enum Token<'a> {
     Semicolon,
     Comma,
 
-    Identifier(&'a [char]),
-    Comment(&'a [char]),
+    Identifier(String),
+    Comment(String),
 }
 
 pub struct Lexer<'a> {
@@ -62,7 +62,7 @@ impl<'a> Lexer<'a> {
         Lexer { rest: source }
     }
 
-    fn next_token(&mut self) -> Result<Option<Token<'a>>, ()> {
+    fn next_token(&mut self) -> Result<Option<Token>, ()> {
         let ret = match self.rest {
             [' ' | '\n' | '\t', rest @ ..] => Ok((None, rest)),
             ['=', '=', rest @ ..] => Ok((Some(Token::DoubleEqual), rest)),
@@ -79,12 +79,12 @@ impl<'a> Lexer<'a> {
                 let (comment, after) = extract_while(rest, |s| matches!(s, ['*', '/', ..]));
                 match after {
                     [] => Err(()),
-                    _ => Ok((Some(Token::Comment(comment)), &after[2..])),
+                    _ => Ok((Some(Token::Comment(comment.iter().collect())), &after[2..])),
                 }
             }
             ['/', '/', rest @ ..] => {
                 let (comment, after) = extract_while(rest, |s| matches!(s, ['\n', ..]));
-                Ok((Some(Token::Comment(comment)), after))
+                Ok((Some(Token::Comment(comment.iter().collect())), after))
             }
             ['/', '=', rest @ ..] => Ok((Some(Token::SlashEqual), rest)),
             ['/', rest @ ..] => Ok((Some(Token::Slash), rest)),
@@ -94,7 +94,7 @@ impl<'a> Lexer<'a> {
                 });
                 match hex {
                     [] => Err(()),
-                    _ => Ok((Some(Token::Hex(hex)), after)),
+                    _ => Ok((Some(Token::Hex(hex.iter().collect())), after)),
                 }
             }
             ['0', rest @ ..] => {
@@ -104,18 +104,18 @@ impl<'a> Lexer<'a> {
                     _ => oct,
                 };
 
-                Ok((Some(Token::Oct(oct)), after))
+                Ok((Some(Token::Oct(oct.iter().collect())), after))
             }
             ['1'..='9', ..] => {
                 let (dec, after) = extract_while(&self.rest, |s| !matches!(s, ['0'..='9', ..]));
-                Ok((Some(Token::Dec(dec)), after))
+                Ok((Some(Token::Dec(dec.iter().collect())), after))
             }
             ['\'', rest @ ..] => {
                 let (lit, after) = extract_while(rest, |s| matches!(s, ['\n' | '\'', ..]));
                 match after {
                     ['\n', ..] => Err(()), // missing closing (found endline)
                     [] => Err(()),         // missing closing (found EOF)
-                    _ => Ok((Some(Token::CharLiteral(lit)), &after[1..])),
+                    _ => Ok((Some(Token::CharLiteral(lit.iter().collect())), &after[1..])),
                 }
             }
             ['\"', rest @ ..] => {
@@ -123,7 +123,7 @@ impl<'a> Lexer<'a> {
                 match after {
                     ['\n', ..] => Err(()),
                     [] => Err(()),
-                    _ => Ok((Some(Token::StrLiteral(lit)), &after[1..])),
+                    _ => Ok((Some(Token::StrLiteral(lit.iter().collect())), &after[1..])),
                 }
             }
             [';', rest @ ..] => Ok((Some(Token::Semicolon), rest)),
@@ -148,9 +148,9 @@ impl<'a> Lexer<'a> {
                 let ident_is_reserved = reserved_words.contains(&ident_str);
 
                 let token = if ident_is_reserved {
-                    Token::Reserved(ident)
+                    Token::Reserved(ident.iter().collect())
                 } else {
-                    Token::Identifier(ident)
+                    Token::Identifier(ident.iter().collect())
                 };
 
                 Ok((Some(token), after))
@@ -170,7 +170,7 @@ impl<'a> Lexer<'a> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Token<'a>, ()>;
+    type Item = Result<Token, ()>;
 
     fn next(&mut self) -> Option<Self::Item> {
         while !self.rest.is_empty() {
@@ -190,9 +190,10 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
+    
     use crate::lexer::Lexer;
     use crate::lexer::Token;
-
+    
     #[test]
     fn tokens() {
         let source = "
@@ -207,39 +208,38 @@ mod tests {
         let tokens = lexer.collect::<Result<Vec<_>, _>>();
         let actual = tokens.unwrap();
 
-        assert!(matches!(
-            actual.as_slice(),
-            [
-                Token::Reserved(&['i', 'f']),
-                Token::RoundOpen,
-                Token::Identifier(&['f', 'l', 'a', 'g']),
-                Token::RoundClose,
-                Token::CurlyOpen,
-                Token::Reserved(&['i', 'n', 't']),
-                Token::Identifier(&['n', 'u', 'm']),
-                Token::Equal,
-                Token::Identifier(&['a', 'r', 'r']),
-                Token::SquareOpen,
-                Token::RoundOpen,
-                Token::RoundOpen,
-                Token::Oct(&['0']),
-                Token::DoubleEqual,
-                Token::Oct(&['1', '2', '3']),
-                Token::RoundClose,
-                Token::Astarisk,
-                Token::Hex(&['2', '5', '5']),
-                Token::Plus,
-                Token::Identifier(&['b', 'c', 'd']),
-                Token::RoundClose,
-                Token::Slash,
-                Token::Identifier(&['e', 'd', 'f']),
-                Token::SquareClose,
-                Token::Semicolon,
-                Token::Comment(&[' ', 'X', ' ', '0', ';', ' ', 'X']),
-                Token::Comment(&[' ', 'X', ' ']),
-                Token::CurlyClose
-            ]
-        ));
+        let expected = vec![
+            Token::Reserved("if".to_string()),
+            Token::RoundOpen,
+            Token::Identifier("flag".to_string()),
+            Token::RoundClose,
+            Token::CurlyOpen,
+            Token::Reserved("int".to_string()),
+            Token::Identifier("num".to_string()),
+            Token::Equal,
+            Token::Identifier("arr".to_string()),
+            Token::SquareOpen,
+            Token::RoundOpen,
+            Token::RoundOpen,
+            Token::Oct("0".to_string()),
+            Token::DoubleEqual,
+            Token::Oct("123".to_string()),
+            Token::RoundClose,
+            Token::Astarisk,
+            Token::Hex("255".to_string()),
+            Token::Plus,
+            Token::Identifier("bcd".to_string()),
+            Token::RoundClose,
+            Token::Slash,
+            Token::Identifier("edf".to_string()),
+            Token::SquareClose,
+            Token::Semicolon,
+            Token::Comment(" X 0; X".to_string()),
+            Token::Comment(" X ".to_string()),
+            Token::CurlyClose,
+        ];
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -251,15 +251,14 @@ mod tests {
         let tokens = lexer.collect::<Result<Vec<_>, _>>();
         let actual = tokens.unwrap();
 
-        assert!(matches!(
-            actual.as_slice(),
-            [
-                Token::Reserved(&['c', 'h', 'a', 'r']),
-                Token::Identifier(&['c', 'h']),
-                Token::Equal,
-                Token::CharLiteral(&['a', 'b', 'c'])
-            ]
-        ))
+        let expected = vec![
+            Token::Reserved("char".to_string()),
+            Token::Identifier("ch".to_string()),
+            Token::Equal,
+            Token::CharLiteral("abc".to_string()),
+        ];
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -272,18 +271,17 @@ mod tests {
         let actual = tokens.unwrap();
         println!("{:?}", actual);
 
-        assert!(matches!(
-            actual.as_slice(),
-            [
-                Token::Reserved(&['c', 'h', 'a', 'r']),
-                Token::Identifier(&['s']),
-                Token::SquareOpen,
-                Token::Dec(&['5']),
-                Token::SquareClose,
-                Token::Equal,
-                Token::StrLiteral(&['a', 'b', 'c'])
-            ]
-        ))
+        let expected = vec![
+            Token::Reserved("char".to_string()),
+            Token::Identifier("s".to_string()),
+            Token::SquareOpen,
+            Token::Dec("5".to_string()),
+            Token::SquareClose,
+            Token::Equal,
+            Token::StrLiteral("abc".to_string()),
+        ];
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -294,10 +292,13 @@ mod tests {
 
         let actual = lexer.collect::<Vec<_>>();
 
-        assert!(matches!(
-            actual.as_slice(),
-            [Ok(Token::Identifier(&['c', 'h'])), Ok(Token::Equal), Err(_)]
-        ))
+        let expected = vec![
+            Ok(Token::Identifier("ch".to_string())),
+            Ok(Token::Equal),
+            Err(()),
+        ];
+
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -308,9 +309,12 @@ mod tests {
 
         let actual = lexer.collect::<Vec<_>>();
 
-        assert!(matches!(
-            actual.as_slice(),
-            [Ok(Token::Identifier(&['c', 'h'])), Ok(Token::Equal), Err(_)]
-        ))
+        let expected = vec![
+            Ok(Token::Identifier("ch".to_string())),
+            Ok(Token::Equal),
+            Err(()),
+        ];
+
+        assert_eq!(actual, expected);
     }
 }
